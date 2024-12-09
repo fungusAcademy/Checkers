@@ -21,7 +21,25 @@ class Logic
 
     vector<move_pos> find_best_turns(const bool color)
     {
+        // Сбрасываем данные
+        next_move.clear();
+        next_best_state.clear();
+        // Ищем первый лучший ход
+        find_first_best_turn(board->get_board(), color, -1, -1, 0);
 
+        vector<move_pos> result;
+        int cur_state = 0;
+
+        // Хотя бы один ход будет, поэтому do ... while
+        do
+        {
+            // Записываем следующий успешный ход и состояние
+            result.push_back(next_move[cur_state]);
+            cur_state = next_best_state[cur_state];
+        } 
+        while (cur_state != -1 && next_move[cur_state].x != -1);
+
+        return result;
     }
 
 private:
@@ -79,6 +97,7 @@ private:
         // победа белого игрока
         if (b + bq == 0)
             return 0;
+        // Коэффициент важности королевы
         int q_coef = 4;
 
         if (scoring_mode == "NumberAndPotential")
@@ -92,13 +111,120 @@ private:
     double find_first_best_turn(vector<vector<POS_T>> mtx, const bool color, const POS_T x, const POS_T y, size_t state,
                                 double alpha = -1)
     {
-       
+        // Обнуляем следующий ход и состояние
+        next_best_state.push_back(-1);
+        next_move.emplace_back(-1, -1, -1, -1);
+        // Считаем возможные ходы, если можно ходить
+        if (state != 0)
+        {
+            find_turns(x, y, mtx);
+        }
+        
+        // Делаем копии
+        auto cur_turns = turns;
+        bool cur_have_beats = have_beats;
+
+        // Если нельзя побить и ход закончен, то ходит следующий игрок
+        if (!cur_have_beats && state != 0)
+        {
+            return find_best_turns_rec(mtx, 1 - color, 0, alpha);
+        }
+
+        // Лучший счет
+        double best_score = -1;
+        // Перебираем возможные ходы
+        for (auto turn : cur_turns)
+        {
+            // Текущее состояние
+            size_t next_state = next_move.size();
+            double score;
+            // Если можно побить, то бьем и перемещаемся, игрок не меняется
+            if (cur_have_beats)
+            {
+                score = find_first_best_turn(make_turn(mtx, turn), color, turn.x2, turn.y2, next_state, best_score);
+            }
+            // Если бить некого, то ходит следующий игрок
+            else
+            {
+                score = find_best_turns_rec(make_turn(mtx, turn), 1 - color, 0, best_score);
+            }
+
+            // Выбираем первый оптимальный ход
+            if (score > best_score)
+            {
+                best_score = score;
+                next_best_state[state] = (cur_have_beats ? next_state : -1);
+                next_move[state] = turn;
+            }
+        }
+
+        return best_score;
     }
 
-    double find_best_turns_rec(vector<vector<POS_T>> mtx, const bool color, const size_t depth, double alpha = -1,
-                               double beta = INF + 1, const POS_T x = -1, const POS_T y = -1)
+    double find_best_turns_rec(vector<vector<POS_T>> mtx, const bool color, const size_t depth, double alpha = -1, double beta = INF + 1, const POS_T x = -1, const POS_T y = -1)
     {
-       
+        // Если достигли максимальной глубины поиска, возвращаем оценку позиции
+        if (depth == Max_depth) 
+        {
+            return calc_score(mtx, (depth % 2 == color));
+        }
+
+        // Если указаны конкретные координаты, ищем ходы из этой позиции
+        if (x != -1 && y != -1)
+        {
+            find_turns(x, y, mtx);
+        }
+        // Иначе ищем ходы для данного цвета
+        else                    
+        {
+            find_turns(color, mtx);
+        }
+
+        // Сохраняем текущие ходы и признак наличия ударов
+        auto curTurns = turns;
+        auto cur_have_beats = have_beats;
+
+        // Если нет ударов и это не первый ход, меняем очередь хода
+        if (!cur_have_beats && x != -1)
+        {
+            return find_best_turns_rec(mtx, 1 - color, depth + 1, alpha, beta, -1, -1);
+        }
+
+        // Если нет доступных ходов, то игрок проиграл
+        if (curTurns.empty()) 
+        {
+            return (depth % 2 ? 0 : INF);
+        }
+
+        // Инициализация минимального и максимального значений оценок
+        double min_score = INF + 1;
+        double max_score = -1;
+
+        // Перебор всех возможных ходов
+        for (auto turn : curTurns) 
+        {
+            double score = 0.0;
+
+            // Продолжаем искать лучшие ходы для удара
+            if (cur_have_beats) 
+            {
+                score = find_best_turns_rec(make_turn(mtx, turn), color, depth, alpha, beta, turn.x2, turn.y2);
+            }
+            // Если это не удар, то меняем очередь хода
+            else 
+            {
+                score = find_best_turns_rec(make_turn(mtx, turn), 1 - color, depth + 1, alpha, beta);
+            }
+
+            // Обновляем минимум и максимум
+            min_score = min(min_score, score);
+            max_score = max(max_score, score);
+
+            return (depth % 2 ? max_score : min_score);
+        }
+
+        // Возвращаем итоговый результат
+        return (depth % 2 ? max_score : min_score);
     }
 
 public:
